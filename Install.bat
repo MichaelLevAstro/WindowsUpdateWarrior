@@ -1,4 +1,5 @@
 @echo off
+setlocal
 :: Registers WindowsUpdateWarrior as a scheduled task that runs at every logon (elevated).
 :: Run this script once as Administrator.
 
@@ -12,10 +13,21 @@ if %errorlevel% neq 0 (
 
 set "SCRIPT_DIR=%~dp0"
 set "TASK_NAME=WindowsUpdateWarrior"
+set "RENEWAL_TASK=WindowsUpdateWarriorRenewal"
 set "PS_PATH=%SCRIPT_DIR%WindowsUpdateWarrior.ps1"
 
-:: Remove existing task if present
-schtasks /Delete /TN "%TASK_NAME%" /F >nul 2>&1
+if not exist "%PS_PATH%" (
+    echo ERROR: Cannot find "%PS_PATH%".
+    pause
+    exit /b 1
+)
+
+:: Stop and remove any existing tasks (main + renewal) so we can recreate cleanly.
+echo Cleaning up any existing tasks...
+schtasks /End    /TN "%TASK_NAME%"    >nul 2>&1
+schtasks /Delete /TN "%TASK_NAME%"    /F >nul 2>&1
+schtasks /End    /TN "%RENEWAL_TASK%" >nul 2>&1
+schtasks /Delete /TN "%RENEWAL_TASK%" /F >nul 2>&1
 
 :: Create task: runs at logon of any user, with highest privileges
 schtasks /Create ^
@@ -24,14 +36,16 @@ schtasks /Create ^
     /SC ONLOGON ^
     /RL HIGHEST ^
     /F
+set "RC=%errorlevel%"
 
-if %errorlevel% equ 0 (
-    echo.
+echo.
+if "%RC%"=="0" (
     echo Success! "%TASK_NAME%" will run at every logon.
     echo It will set optimal Active Hours and warn you about forced reboots.
 ) else (
-    echo.
-    echo Failed to create the scheduled task. Check the error above.
+    echo Failed to create the scheduled task (exit code %RC%). Check the error above.
 )
 
 pause
+endlocal
+exit /b %RC%

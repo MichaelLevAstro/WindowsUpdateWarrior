@@ -62,18 +62,22 @@ try {
 $renewalTaskName = "WindowsUpdateWarriorRenewal"
 $scriptPath      = $MyInvocation.MyCommand.Path
 $renewalTime     = $now.AddHours(16).ToString("HH:mm")
-$renewalDate     = $now.AddHours(16).ToString("MM/dd/yyyy")
+# Use local short-date format so schtasks accepts it under any locale.
+$renewalDate     = $now.AddHours(16).ToShortDateString()
 
 try {
     # Remove previous renewal task if it exists
     schtasks /Delete /TN $renewalTaskName /F 2>$null
 
+    # /RU SYSTEM so task fires even when no user is logged on;
+    # otherwise a missed ONCE trigger breaks the renewal chain.
     schtasks /Create `
         /TN $renewalTaskName `
         /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`"" `
         /SC ONCE `
         /ST $renewalTime `
         /SD $renewalDate `
+        /RU "SYSTEM" `
         /RL HIGHEST `
         /F | Out-Null
 

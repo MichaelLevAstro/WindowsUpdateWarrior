@@ -1,5 +1,6 @@
 @echo off
-:: Removes the WindowsUpdateWarrior scheduled task. Run as Administrator.
+setlocal
+:: Removes all WindowsUpdateWarrior scheduled tasks. Run as Administrator.
 
 net session >nul 2>&1
 if %errorlevel% neq 0 (
@@ -8,12 +9,36 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-schtasks /Delete /TN "WindowsUpdateWarrior" /F
+set "TASK_NAME=WindowsUpdateWarrior"
+set "RENEWAL_TASK=WindowsUpdateWarriorRenewal"
+set "ANY_REMOVED=0"
 
-if %errorlevel% equ 0 (
-    echo Task removed successfully.
+call :RemoveTask "%TASK_NAME%"
+call :RemoveTask "%RENEWAL_TASK%"
+
+echo.
+if "%ANY_REMOVED%"=="1" (
+    echo All WindowsUpdateWarrior tasks removed.
 ) else (
-    echo Task not found or could not be removed.
+    echo No WindowsUpdateWarrior tasks were found.
 )
 
 pause
+endlocal
+exit /b 0
+
+:RemoveTask
+schtasks /Query /TN %~1 >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [skip] Task %~1 not found.
+    exit /b 0
+)
+schtasks /End    /TN %~1 >nul 2>&1
+schtasks /Delete /TN %~1 /F >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [ok]   Task %~1 removed.
+    set "ANY_REMOVED=1"
+) else (
+    echo [fail] Could not remove task %~1.
+)
+exit /b 0
