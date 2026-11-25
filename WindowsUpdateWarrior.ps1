@@ -5,10 +5,39 @@
 .DESCRIPTION
     1. Sets Active Hours to start 1 hour before now and span the full 18 hours,
        so Windows won't restart for as long as possible from this point.
-    2. Checks if Windows has a pending forced reboot (update postponed too long)
+    2. Sets the Windows Update policy to notify-only with no auto-restart, and
+       stops + disables the wuauserv service if Windows has turned it back on.
+    3. Checks if Windows has a pending forced reboot (update postponed too long)
        and shows a warning dialog if so.
     Designed to run at startup via Task Scheduler (as SYSTEM / elevated).
+.PARAMETER ServiceGuard
+    Only re-disable wuauserv, then exit. Used by the hourly guard task.
 #>
+param([switch]$ServiceGuard)
+
+# Stops + disables the Windows Update service (wuauserv) if it is running or
+# enabled. Windows (WaaSMedicSvc) re-enables it on its own, so this runs on
+# every full run and hourly via the guard task.
+function Disable-WindowsUpdateService {
+    try {
+        $wu = Get-Service -Name "wuauserv" -ErrorAction Stop
+        if ($wu.StartType -ne 'Disabled' -or $wu.Status -ne 'Stopped') {
+            # Disable first so nothing can restart it between stop and disable.
+            Set-Service  -Name "wuauserv" -StartupType Disabled -ErrorAction Stop
+            Stop-Service -Name "wuauserv" -Force -ErrorAction Stop
+            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] wuauserv was $($wu.Status)/$($wu.StartType) - stopped and disabled."
+        } else {
+            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] wuauserv already stopped and disabled."
+        }
+    } catch {
+        Write-Warning "Failed to disable wuauserv: $_"
+    }
+}
+
+if ($ServiceGuard) {
+    Disable-WindowsUpdateService
+    exit
+}
 
 # ── 1. Calculate and set optimal Active Hours ────────────────────────────
 
@@ -84,6 +113,45 @@ try {
     Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] Renewal scheduled for $renewalDate $renewalTime (in 16 hours)."
 } catch {
     Write-Warning "Failed to schedule renewal task: $_"
+}
+
+# ── 1c. Update policy: notify only, never auto-restart ───────────────────
+
+$auPolicyKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
+
+try {
+    if (-not (Test-Path $auPolicyKey)) { New-Item -Path $auPolicyKey -Force | Out-Null }
+    # AUOptions 2 = notify before download; nothing installs or reboots on its own.
+    Set-ItemProperty -Path $auPolicyKey -Name "NoAutoUpdate"                  -Value 0 -Type DWord -Force
+    Set-ItemProperty -Path $auPolicyKey -Name "AUOptions"                     -Value 2 -Type DWord -Force
+    Set-ItemProperty -Path $auPolicyKey -Name "NoAutoRebootWithLoggedOnUsers" -Value 1 -Type DWord -Force
+    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] Update policy set: notify only, no auto-restart."
+} catch {
+    Write-Warning "Failed to set Windows Update policy: $_"
+}
+
+# ── 1d. Keep the Windows Update service (wuauserv) disabled ──────────────
+
+Disable-WindowsUpdateService
+
+# ── 1e. Hourly guard task: re-disable wuauserv between full runs ─────────
+
+$guardTaskName = "WindowsUpdateWarriorServiceGuard"
+
+try {
+    # /F overwrites, so re-running keeps the task pointing at this script.
+    schtasks /Create `
+        /TN $guardTaskName `
+        /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -ServiceGuard" `
+        /SC HOURLY `
+        /MO 1 `
+        /RU "SYSTEM" `
+        /RL HIGHEST `
+        /F | Out-Null
+
+    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] Hourly wuauserv guard task registered."
+} catch {
+    Write-Warning "Failed to register guard task: $_"
 }
 
 # ── 2. Check for pending forced-reboot and warn the user ─────────────────

@@ -11,10 +11,21 @@ if %errorlevel% neq 0 (
 
 set "TASK_NAME=WindowsUpdateWarrior"
 set "RENEWAL_TASK=WindowsUpdateWarriorRenewal"
+set "GUARD_TASK=WindowsUpdateWarriorServiceGuard"
 set "ANY_REMOVED=0"
 
 call :RemoveTask "%TASK_NAME%"
 call :RemoveTask "%RENEWAL_TASK%"
+call :RemoveTask "%GUARD_TASK%"
+
+:: Undo what the script changed: re-enable Windows Update (default: Manual) and
+:: remove the policy values it wrote.
+set "AU_KEY=HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
+sc config wuauserv start= demand >nul 2>&1 && echo [ok]   Windows Update service re-enabled.
+reg delete "%AU_KEY%" /v NoAutoUpdate /f >nul 2>&1
+reg delete "%AU_KEY%" /v AUOptions /f >nul 2>&1
+reg delete "%AU_KEY%" /v NoAutoRebootWithLoggedOnUsers /f >nul 2>&1
+echo [ok]   Windows Update policy values removed.
 
 echo.
 if "%ANY_REMOVED%"=="1" (

@@ -27,3 +27,9 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Fil
 ; Remove the scheduled tasks on uninstall
 Filename: "schtasks.exe"; Parameters: "/Delete /TN ""WindowsUpdateWarrior"" /F"; Flags: runhidden waituntilterminated
 Filename: "schtasks.exe"; Parameters: "/Delete /TN ""WindowsUpdateWarriorRenewal"" /F"; Flags: runhidden waituntilterminated
+Filename: "schtasks.exe"; Parameters: "/Delete /TN ""WindowsUpdateWarriorServiceGuard"" /F"; Flags: runhidden waituntilterminated
+; Re-enable Windows Update (default: Manual) and remove the policy values the script wrote
+Filename: "sc.exe"; Parameters: "config wuauserv start= demand"; Flags: runhidden waituntilterminated
+Filename: "reg.exe"; Parameters: "delete ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"" /v NoAutoUpdate /f"; Flags: runhidden waituntilterminated
+Filename: "reg.exe"; Parameters: "delete ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"" /v AUOptions /f"; Flags: runhidden waituntilterminated
+Filename: "reg.exe"; Parameters: "delete ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"" /v NoAutoRebootWithLoggedOnUsers /f"; Flags: runhidden waituntilterminated
