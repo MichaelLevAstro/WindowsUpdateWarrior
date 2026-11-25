@@ -90,27 +90,20 @@ try {
 
 $renewalTaskName = "WindowsUpdateWarriorRenewal"
 $scriptPath      = $MyInvocation.MyCommand.Path
-$renewalTime     = $now.AddHours(16).ToString("HH:mm")
-# Use local short-date format so schtasks accepts it under any locale.
-$renewalDate     = $now.AddHours(16).ToShortDateString()
+$renewalAt       = $now.AddHours(16)
 
 try {
-    # Remove previous renewal task if it exists
-    schtasks /Delete /TN $renewalTaskName /F 2>$null
+    # Register-ScheduledTask takes a real DateTime, so no locale-dependent
+    # date string (schtasks /SD rejected ToShortDateString on some systems).
+    # SYSTEM so task fires even when no user is logged on;
+    # otherwise a missed one-time trigger breaks the renewal chain.
+    $action  = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+    $trigger = New-ScheduledTaskTrigger -Once -At $renewalAt
+    Register-ScheduledTask -TaskName $renewalTaskName -Action $action -Trigger $trigger `
+        -User "NT AUTHORITY\SYSTEM" -RunLevel Highest -Force -ErrorAction Stop | Out-Null
 
-    # /RU SYSTEM so task fires even when no user is logged on;
-    # otherwise a missed ONCE trigger breaks the renewal chain.
-    schtasks /Create `
-        /TN $renewalTaskName `
-        /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`"" `
-        /SC ONCE `
-        /ST $renewalTime `
-        /SD $renewalDate `
-        /RU "SYSTEM" `
-        /RL HIGHEST `
-        /F | Out-Null
-
-    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] Renewal scheduled for $renewalDate $renewalTime (in 16 hours)."
+    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] Renewal scheduled for $($renewalAt.ToString('yyyy-MM-dd HH:mm')) (in 16 hours)."
 } catch {
     Write-Warning "Failed to schedule renewal task: $_"
 }
@@ -142,13 +135,14 @@ try {
     # /F overwrites, so re-running keeps the task pointing at this script.
     schtasks /Create `
         /TN $guardTaskName `
-        /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -ServiceGuard" `
+        /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"$scriptPath\`" -ServiceGuard" `
         /SC HOURLY `
         /MO 1 `
         /RU "SYSTEM" `
         /RL HIGHEST `
         /F | Out-Null
 
+    if ($LASTEXITCODE -ne 0) { throw "schtasks exit code $LASTEXITCODE" }
     Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm')] Hourly wuauserv guard task registered."
 } catch {
     Write-Warning "Failed to register guard task: $_"
